@@ -1,3 +1,11 @@
+/*
+  Air Quality Monitor
+  GitHub: https://github.com/fobaty/Air-Quality-Monitor
+  Version: 1.0
+  Glory to Ukraine!
+*/
+
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Wire.h>
