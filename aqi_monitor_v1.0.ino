@@ -5,7 +5,6 @@
   Glory to Ukraine!
 */
 
-
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Wire.h>
@@ -35,6 +34,7 @@ const char* AP_PASS = "12345678";
 #define TFT_DC   4
 #define TFT_CS   5
 #define TFT_BL   6
+
 /* ========================================== */
 
 WebServer server(80);
@@ -60,6 +60,13 @@ uint16_t pm25 = 0;
 uint16_t pm10 = 0;
 unsigned long lastSerial = 0;
 unsigned long lastDisplay = 0;
+
+/* ===== CO2 Graph ===== */
+#define GRAPH_SAMPLES 60 
+int co2History[GRAPH_SAMPLES];
+int graphIdx = 0;
+unsigned long lastGraphPoint = 0;
+unsigned long graphInterval = 30000;
 
 
 /* ===== Level helpers ===== */
@@ -152,6 +159,27 @@ bool readPMS() {
   return true;
 }
 
+void drawCO2Graph(int x, int y, int w, int h) {
+  tft.fillRect(x, y, w, h, ST77XX_BLACK); // Clear the graph area.
+  tft.drawRect(x, y, w, h, 0x4208);       //Draw a dark gray frame.
+
+  // Draw a dashed line representing the "normal" level (800 ppm)
+  int normLine = map(800, 400, 2000, 0, h - 4);
+  for(int i=0; i<w; i+=4) tft.drawPixel(x+i, y + h - 2 - normLine, 0x03E0); // Dark green
+
+  for (int i = 0; i < GRAPH_SAMPLES - 1; i++) {
+    if (co2History[i+1] == 0) break;
+
+    int v1 = map(constrain(co2History[i], 400, 2000), 400, 2000, 0, h - 4);
+    int v2 = map(constrain(co2History[i+1], 400, 2000), 400, 2000, 0, h - 4);
+
+    int x1 = x + i * 2; // Step of 2 pixels (60 dots * 2 = 120 pixels wide)
+    int x2 = x + (i + 1) * 2;
+
+    tft.drawLine(x1, y + h - 2 - v1, x2, y + h - 2 - v2, ST77XX_GREEN);
+  }
+}
+
 void setup() {
   setCpuFrequencyMhz(80);
   Serial.begin(115200);
@@ -185,10 +213,12 @@ void setup() {
   tft.setTextColor(ST77XX_WHITE);
   tft.println("SYSTEM CHECK:");
   
-  auto printStatus = [](const char* msg, bool ok) {
+  auto printStatus = [&](const char* msg, bool ok) {
+    tft.setCursor(10, tft.getCursorY());
     tft.print(" > ");
     tft.print(msg);
     tft.print(":");
+    
     tft.setCursor(95, tft.getCursorY());
     if (ok) {
       tft.setTextColor(ST77XX_GREEN);
@@ -211,7 +241,7 @@ void setup() {
 
   // 2. PMS5003
   PMS.begin(9600, SERIAL_8N1, PMS_RX, PMS_TX);
-  printStatus("PMS5003", true); // UART всегда true при инициализации
+  printStatus("PMS5003", true); // UART
 
   // 3.  WiFi
   WiFi.softAP(AP_SSID, AP_PASS);
@@ -265,6 +295,19 @@ void loop() {
   /* -------- PMS5003 -------- */
   readPMS();
 
+  /* -------- DATA COLLECTION LOGIC FOR THE GRAPH -------- */
+  if (millis() - lastGraphPoint >= graphInterval) {
+    lastGraphPoint = millis();
+    
+    if (graphIdx < GRAPH_SAMPLES) {
+      co2History[graphIdx] = (int)co2;
+      graphIdx++;
+    } else {
+      for (int i = 0; i < GRAPH_SAMPLES - 1; i++) co2History[i] = co2History[i + 1];
+      co2History[GRAPH_SAMPLES - 1] = (int)co2;
+    }
+  }
+
   /* -------- SERIAL OUTPUT & TEXT UPDATE -------- */
   if (millis() - lastSerial >= 5000) {
     lastSerial = millis();
@@ -286,7 +329,7 @@ void loop() {
 
     Serial.println("================================");
 
-  //TEXT UPDATE
+    //TEXT UPDATE
     tft.setTextSize(1);
     tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
     tft.setCursor(30, 0);
@@ -296,19 +339,17 @@ void loop() {
 
     // --- CO2 ---
     String co2Lvl = co2Level(co2);
-    uint16_t co2Clr = ST77XX_WHITE;
-    if (co2Lvl == "Good") co2Clr = ST77XX_GREEN;
-    else if (co2Lvl == "Moderate") co2Clr = ST77XX_ORANGE;
-    else if (co2Lvl == "Poor") co2Clr = ST77XX_RED;
-    else co2Clr = ST77XX_MAGENTA;
-
+    uint16_t co2Clr = (co2Lvl == "Good") ? ST77XX_GREEN : (co2Lvl == "Moderate") ? ST77XX_ORANGE : ST77XX_RED;
+    
     tft.setTextColor(co2Clr, ST77XX_BLACK); 
     tft.setCursor(1, yOffset);
-    tft.printf("CO2: %.0f ppm           ", co2); 
+    tft.printf("CO2: %.0f (%s)      ", co2, co2Lvl.c_str()); 
     yOffset += 12;
-    tft.setCursor(30, yOffset);
-    tft.printf("(%s)               ", co2Lvl.c_str()); 
-    yOffset += 20;
+
+    // --- Rendering the graph (Simply drawing what has accumulated in the array) ---
+    drawCO2Graph(4, yOffset, 120, 30); 
+    yOffset += 35;
+
 
     // --- Temp & Hum ---
     tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
