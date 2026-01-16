@@ -57,7 +57,7 @@ The project features:
 1. Upload the code to your ESP32 board.
 2. Connect all sensors and display as shown in the schematic.
 3. Power on the ESP32.
-4. Connect to the Wi-Fi network `ESP32-AQI` (password: `12345678`).
+4. Connect to the Wi-Fi network `AIR-SCAN` (password: `12345678`).
 5. Open a browser and go to `192.168.4.1` to see the web interface.
 6. Read data on the web or directly on the SPI display.
 
